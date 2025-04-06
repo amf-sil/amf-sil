@@ -1,0 +1,68 @@
+cd /home/lab324/Documents/lx/Tibet1
+conda activate qiime2-amplicon-2023.9
+#input
+qiime tools import \
+  --type 'SampleData[SequencesWithQuality]' \
+  --input-path mj-tibet.tsv \
+  --output-path mj-tibet.qza \
+  --input-format SingleEndFastqManifestPhred33
+
+
+mkdir dada2_output
+
+#dada2 ccs
+
+qiime dada2 denoise-ccs \
+   --i-demultiplexed-seqs mj-tibet.qza \
+   --p-min-len 1200 --p-max-len 1800 \
+   --p-front TATYGYTCTTNAACGAGGAATC --p-adapter AACACTCGCAYAYATGYTAGA \
+   --p-n-threads $NCORES \
+   --o-table dada2_output/table.qza \
+   --o-representative-sequences dada2_output/representative_sequences.qza \
+   --o-denoising-stats dada2_output/stats.qza \
+   --verbose
+   
+qiime feature-table summarize \
+   --i-table dada2_output/table.qza \
+   --o-visualization dada2_output/dada2_table_summary.qzv
+   
+  
+
+#vsearch   97%
+time qiime vsearch cluster-features-de-novo --i-table dada2_output/table.qza --i-sequences dada2_output/representative_sequences.qza --p-perc-identity 0.97 --o-clustered-table dada2_output/table_97.qza --o-clustered-sequences dada2_output/sequences_97.qza
+#del reads<10
+qiime feature-table filter-features \
+   --i-table dada2_output/table_97.qza \
+   --p-min-frequency 10 \
+   --o-filtered-table dada2_output/dada2_table_97_filt.qza
+#table
+qiime feature-table summarize \
+   --i-table dada2_output/dada2_table_97_filt.qza \
+   --o-visualization dada2_output/dada2_table_97_filt_summary.qzv
+#seqs
+qiime metadata tabulate   --m-input-file dada2_output/sequences_97.qza   --o-visualization  dada2_output/sequences_97.qzv
+qiime tools view uchime-seqs.qzv
+
+
+#output table and seqs
+qiime feature-table transpose --i-table dada2_output/dada2_table_97_filt.qza --o-transposed-feature-table dada2_output/dada2_table_trans_97_filt.qza
+
+qiime metadata tabulate  --m-input-file dada2_output/dada2_table_trans_97_filt.qza --m-input-file dada2_output/sequences_97.qza     --o-visualization QTP_dada2_97.qzv
+
+#tax
+qiime tools import --type 'FeatureData[Taxonomy]' --input-format HeaderlessTSVTaxonomyFormat --input-path  AMF_SIL_tax.txt --output-path AMF_SIL_tax.qza
+
+qiime tools import --type 'FeatureData[Sequence]'  --input-path AMF_SIL_seqs.fasta --output-path AMF_SIL_seqs.qza
+
+qiime feature-classifier classify-consensus-blast \
+	--i-query dada2_output/dada2_table_97_filt.qza \
+	--i-reference-reads AMF_SIL_seqs.qza \
+	--i-reference-taxonomy AMF_SIL_seqs.qza \
+	--p-maxaccepts 10 \
+	--p-min-consensus 0.51 \
+	--p-evalue 0.001 \
+	--p-query-cov 0.8 \
+	--o-classification taxonomy_blast.qza \
+	--o-search-results search-results.qza
+
+qiime metadata tabulate  --m-input-file taxonomy_blast.qza --o-visualization taxonomy_blast.qzv
